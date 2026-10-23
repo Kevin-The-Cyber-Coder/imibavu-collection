@@ -15,4 +15,4 @@ Write-Host "  Frontend  http://localhost:3000" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Demo admin: admin@imibavucollection.rw  /  Admin123" -ForegroundColor Cyan
 Write-Host ""
-Start-Process "http://localhost:3000/"
+Start-Process "http://localhost:3000/"rgtey
