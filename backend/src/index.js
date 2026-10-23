@@ -4,7 +4,14 @@ const { connectDB } = require("./db/connect");
 const logger = require("./utils/logger");
 
 connectDB()
+
   .then(() => {
+    app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Imibavu Collection API is running 🚀"
+  });
+});
     app.listen(env.port, () => {
       logger.info(
         { port: env.port, env: env.nodeEnv },
