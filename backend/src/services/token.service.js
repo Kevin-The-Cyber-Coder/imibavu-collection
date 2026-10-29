@@ -4,12 +4,12 @@ const env = require("../config/env");
 
 const sha256 = (v) => crypto.createHash("sha256").update(v).digest("hex");
 
-function signAccess(user) {
-  return jwt.sign(
-    { sub: user._id.toString(), role: user.role },
-    env.jwt.accessSecret,
-    { expiresIn: env.jwt.accessTtl }
-  );
+function signAccess(user, ttl = env.jwt.accessTtl, step) {
+  const payload = { sub: user._id.toString(), role: user.role };
+  if (Array.isArray(user.permissions)) payload.permissions = user.permissions;
+  if (user.permissionPreset) payload.permissionPreset = user.permissionPreset;
+  if (step) payload.step = step;
+  return jwt.sign(payload, env.jwt.accessSecret, { expiresIn: ttl });
 }
 
 function signRefresh(user) {

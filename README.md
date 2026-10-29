@@ -187,29 +187,47 @@ Base URL: `http://localhost:5000/api/v1` · Auth: `Authorization: Bearer <access
 
 ```
 frontend/src/
-├── App.js                  # Hash router, per-route title/scroll, applies URL filters
-├── index.js                # React entry (no StrictMode)
-├── index.css               # Full design system (original styles + React additions)
+├── App.js                  # Hash router, per-route title/scroll, portal vs storefront chrome
+├── index.js                # React entry (no StrictMode) + theme init
+├── index.css               # Storefront design system (original styles + React additions)
+├── portal.css              # Portal design system: shell, KPIs, tables→cards, dark mode
 ├── config.js               # API base URL (REACT_APP_API_BASE override)
 ├── api.js                  # Fetch wrapper: auth headers, refresh, guestId, JSON errors
 ├── store.js                # Global store — state, actions, persistence, API orchestration
 ├── i18n.js                 # en / rw / fr dictionaries + t() helper
 ├── data.js                 # Static seed data used before/while API catalogs load
 ├── utils.js                # money, stars, whatsapp links, brandName, image helpers
+├── utils/
+│   ├── notify.js           # SweetAlert2 layer for all portals (toasts, dialogs, code map)
+│   └── theme.js            # Light / dark theme, follows the device setting
 ├── components/
-│   ├── Layout.jsx          # PromoBanner, Header, MobileNav, CartDrawer, Footer, WA float, toast
+│   ├── Layout.jsx          # Storefront chrome: promo, header, mobile nav, cart drawer, footer
+│   ├── Portal.jsx          # Portal shell: sidebar, top bar, bell, permission model, audit log
+│   ├── PortalUI.jsx        # Shared primitives: PortalPage, KpiCard, DataTable, Modal, Badge…
 │   ├── ProductCard.jsx     # Product card (badges, stock, add-to-cart, WhatsApp, wishlist)
 │   ├── ProductImage.jsx    # Picture/img with deterministic placeholder + fallback
 │   ├── Stars.jsx, SectionHead.jsx, Icons.jsx
-└── pages/                  # Home, Shop, Product, Brands, Blends, Quiz, About, Visit,
-                            # Faq, Checkout, OrderPage, Account, Admin, Static
+├── pages/                  # Storefront: Home, Shop, Product, Brands, Blends, Quiz, About,
+│                           # Visit, Faq, Checkout, OrderPage, Login, Static
+└── pages/portal/           # The three dashboards
+    ├── AdminHome.jsx       # #/admin — KPIs, charts, alerts, recent orders, activity
+    ├── AdminPages.jsx      # products, inventory, orders, customers, employees, marketing,
+    │                       # bookings, quiz, brands, reviews, reports, settings, audit, profile
+    ├── Staff.jsx           # #/staff — my day, my tasks, order actions, stock, support
+    └── Account.jsx         # #/account — order tracker, wishlist, addresses, returns, reviews,
+                            # blends, bookings, scent results, loyalty, offers, security
 ```
 
 ### Core patterns
 - **Store** — `state` is mutated by actions then `notify()` re-renders subscribers via `useStore()`. Everything (cart, wishlist, filters, quiz, auth, orders, blends) flows through `store.js`. Cart/wishlist/user persisted to `localStorage`.
 - **Routing** — hash URLs: `#/`, `#/shop?cat=perfumes&brand=…&q=…`, `#/product/:slug`, `#/order/:code`, `#/page/:slug`. The `shop`/`product`/`brands` routes read query params each navigation and reset filters accordingly.
-- **Images** — product/store photos use deterministic placeholder generators (picsum-based) via `realImg`/`ProductImage`; store photos & gallery are decorative gradient panels with `backgroundImage` (matching the original design). Real photos can be dropped in later without markup changes.
-- **i18n** — every label goes through `t("key")`; all three languages ship in `i18n.js`.
+- **Portal routing** — `#/admin/<page>` and `#/staff/<page>` render inside `PortalShell` (no storefront header); `#/account/<page>` renders inside the storefront chrome with the account menu. A staff account that opens `#/admin` is served the employee workspace instead.
+- **Permissions** — `staffAreas()` resolves the signed-in employee's granted areas from `user.permissions` (falling back to a preset). `canAccess(area)` gates sidebar entries, bottom-bar items and whole routes; blocked areas render the access-denied page with a "Request access" button. Revenue and profit figures are hidden unless the `money` area is granted.
+- **Notifications** — every success, warning, error and confirmation goes through `utils/notify.js` (SweetAlert2). `notify.apiError(err)` maps the backend `code` to a translated message and falls back to `message`. Toasts that matter are also pushed into the bell feed via `feedPush()`.
+- **Audit log** — `auditLog(action, entity, detail)` records who changed what and when; the Super Admin Audit log page and the dashboard's employee-activity widget read it back.
+- **Images** — product/store photos use deterministic placeholder generators (picsum-based) via `realImg`/`ProductImage`; store photos & gallery are decorative gradient panels with `backgroundImage`. Real photos can be dropped in later without markup changes.
+- **i18n** — every label goes through `t("key")`; all three languages ship in `i18n.js`, including the SweetAlert2 wording and the API error-code map.
+- **Theme** — `initTheme()` applies the device setting, the portal top bar and login screen expose a manual toggle, and `clearTheme()` returns to following the device.
 
 ---
 
@@ -283,19 +301,56 @@ frontend/src/
 
 ### Account (`#/account`)
 - **Auth** — register, login (email or phone), **OTP phone verification**, forgot/reset password, auto cart/wishlist merge on login
-- Tabs — **My orders**, **Wishlist**, **Saved blends**, **Rewards** (loyalty points), **Addresses**
-- Registered customer flows (logout, profile)
+- **Sign-in screen** — role selector (Customer / Employee / Super Admin), OTP or MFA for staff and admins, forced password change and MFA setup on first login, account unlock after lockout, Google for customers, passkey button where supported, `EN | RW | FR` switcher and a light/dark toggle, resend countdown
+- **Dashboard** — greeting, summary cards (orders, wishlist, loyalty points with RWF value, coupons), latest-order tracker (Placed → Confirmed → Packed → Out for delivery → Delivered) with Track / Invoice / Reorder, recommendations from purchases and the Scent Finder profile, upcoming booking, scent profile, coupons wallet and referral code
+- **Menu** — My orders, Wishlist, Addresses, Returns, Reviews, My blends, Bookings, Scent results, Loyalty and coupons, Notifications, Security and privacy
+- Mobile-first: bottom tab bar, horizontally swipeable summary cards, sticky Track / Reorder buttons
 
-### Admin back office (`#/admin`)
-- Tabs — **Products / Orders / Promotions / Reviews / Reports**
-- Products: live price edit (prompt), restock/sell-out toggle, hide/show, **bulk CSV price update**
-- Orders: status workflow (Received → Confirmed → Out for delivery → Delivered)
-- Promotions: enable/disable offers, add code+label
-- Reviews: moderate (approve/hide)
-- Reports: trends from orders & reviews
+### Employee dashboard (`#/staff`)
+- **My day** — assigned, to pack, to deliver and unpaid counts
+- **My tasks** — checklist with due times and tap-to-complete, kept per day
+- **Orders** — one-tap Confirm / Pack / Deliver, click-to-call, WhatsApp, printable packing slips, map link for the delivery address
+- **Stock** — barcode/SKU search, adjustment with a required reason, offline drafts that sync when the connection returns
+- **Support / Marketing** — reviews to moderate, today's bookings, coupons and subscribers
+- **My performance** — orders delivered and average handling time this week
+- Anything the Super Admin did not grant simply does not appear; blocked routes show "You don't have access" with a request button
+
+### Super Admin dashboard (`#/admin`)
+- **Shell** — collapsible sidebar (slide-out on phones, icon-only on tablets), top bar with global search (`/` focuses it), notification bell, language switch, theme toggle and profile menu; mobile bottom bar with Dashboard / Orders / Products / More
+- **Dashboard** — greeting, quick actions, date-range filter, CSV/PDF export, KPI cards with trend arrows and sparklines, revenue line/bar chart, orders-by-status donut, sales-by-category bars, top products and customers, low-stock alerts with one-click restock, recent orders table, employee activity, pending bookings and a notifications feed
+- **Pages** — Products (search, filters, bulk actions, inline price and stock edit, duplicate, CSV import/export), Add/edit product (EN/RW/FR tabs, variants, scent notes, SEO, drag-and-drop images with reordering and alt text, draft/published/archived, step-by-step on phones), Brands and collections, Inventory (overview, adjustments with reason, history log), Orders (filters, status timeline, assignment, invoice, packing slip, refund with reason), Customers (spend, notes, tags, block/unblock, review moderation), Employees (create, permission presets and checkbox matrix, activate/deactivate, presets as templates only), Marketing (coupons, bundles, featured items, WhatsApp subscribers), Bookings and blends (sessions, reschedule, slot capacity, Scent Finder quiz editor), Reports (period, category, product, employee, stock valuation, coupon usage), Settings (store, zones and fees, payments, notification templates, appearance, MFA, maintenance mode), Audit log
 
 ### Static pages
 - `#/page/:slug` renders content pages from the PAGES map (fragrance care, returns, privacy, authenticity/about-certificates) via a prose layout.
+
+---
+
+## Notifications (SweetAlert2)
+
+Every portal shares one helper, `frontend/src/utils/notify.js`, so success, warning, error and confirmation states look and behave the same everywhere.
+
+| Helper | Use it for |
+|---|---|
+| `notify.success/info/warning(title)` | Quick feedback: saved, added to cart, status updated, copied |
+| `notify.error(title)` | Failed actions — stays longer (5s) and hints at a retry |
+| `notify.apiError(err, fallback)` | Maps the backend `code` to a translated message, falls back to `message` |
+| `notify.confirm({...})` | Delete, cancel order, refund, deactivate employee, log out everywhere |
+| `notify.askReason({...})` | Refund, cancellation, stock adjustment, rejection — the reason is required |
+| `notify.askText({...})` | Short numeric or text input (quantity, price, code, new slot) |
+| `notify.loading(title)` / `notify.close()` | Uploads, payments, report exports |
+| `notify.result({...})` | Order placed, payment successful, booking confirmed |
+| `notify.countdown({...})` | Session about to expire, unsaved changes, low stock |
+| `notify.tour(steps)` | Short onboarding tour on first login |
+
+Behaviour kept from the spec: toasts land top-center on phones and top-end on desktop (never over the bottom navigation), they pause while hovered or touched, dialogs fit the screen with full-width buttons on mobile, focus trapping and Escape stay enabled, animations respect `prefers-reduced-motion`, and form validation stays inline rather than in a pop-up.
+
+The backend returns the same shape for every request, so the frontend can translate the failure:
+
+```json
+{ "success": false, "code": "STOCK_TOO_LOW", "message": "Only 3 left in stock" }
+```
+
+`CODE_KEYS` in `notify.js` maps `code` → i18n key (EN / RW / FR), and `errText()` falls back to the server `message` and then to a generic message. Store-level `toast()` now routes through the same helper, so the storefront and the portals behave identically.
 
 ---
 
@@ -337,11 +392,14 @@ Serve `build/` from any static host (Nginx, Vercel, Netlify…). The app uses ha
 ## Updating / extending the project
 
 - **New product, brand, zone, promo, review or admin** → prefer the seeded admin dashboard; for bulk data edits, update `backend/scripts/seed.js` or the Mongo collections.
-- **New page** → add a view in `frontend/src/pages/`, register the route + title in `frontend/src/App.js`.
+- **New page** → add a view in `frontend/src/pages/` (or `pages/portal/`), register the route + title in `frontend/src/App.js`.
+- **New admin page** → add the component to `pages/portal/AdminPages.jsx`, register it in `ADMIN_PAGES`/`STAFF_PAGES` in `App.js`, then add a `NAV_GROUPS` entry in `components/Portal.jsx` with its `area` so permissions gate it.
+- **New permission area** → add it to `PERMISSION_AREAS` (checkbox matrix) and to the relevant `ROLE_PRESETS` in `components/Portal.jsx`.
 - **New label** → add the key to **all three** languages in `frontend/src/i18n.js` (en / rw / fr).
 - **New API endpoint** → add the route file under `backend/src/routes/`, wire it in `backend/src/app.js` (mounted under `/api/v1`), validate inputs with `zod`.
+- **New error code** → add the key to all three languages and to `CODE_KEYS` in `utils/notify.js` so it reaches the user translated.
 - **Copy changes** → `frontend/src/data.js` (static seed fallback) and `backend/scripts/seed.js` stay in sync on purpose.
-- **Design tweaks** → all styles live in `frontend/src/index.css`; icons come from `react-icons` re-exported in `frontend/src/components/Icons.jsx`.
+- **Design tweaks** → storefront styles live in `frontend/src/index.css`, portal styles in `frontend/src/portal.css`; icons come from `react-icons` re-exported in `frontend/src/components/Icons.jsx`.
 
 ---
 

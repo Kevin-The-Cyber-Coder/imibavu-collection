@@ -4,12 +4,11 @@
 import { useSyncExternalStore } from "react";
 import { api } from "./api";
 import { t, setLangVar, getLang } from "./i18n";
+import { notify as sweetNotify, errText } from "./utils/notify";
 import {
-  PRODUCTS, BRANDS, CATEGORIES, GENDERS, SCENT_FAMILIES, LONGEVITY, COLLECTIONS,
-  BLEND_BASES, BLEND_NOTES, BLEND_SIZES, POPULAR_BLENDS, PAST_BLENDS, ZONES,
-  TESTIMONIALS, FAQS, ARTICLES, DELIVERY_PROMO, QUIZ, PAGES
+  PRODUCTS, BRANDS, COLLECTIONS, BLEND_BASES, BLEND_SIZES, POPULAR_BLENDS, ZONES
 } from "./data";
-import { money, waLink, sizeLabel, esc } from "./utils";
+import { money, waLink, sizeLabel } from "./utils";
 
 /* ---------------- storage & state ---------------- */
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
@@ -33,8 +32,12 @@ export const state = {
   quiz: { step: 0, a: { mood: "", season: "", notes: [] }, results: null },
   pd: { size: 0, img: 0, qty: 1 },
   curProduct: PRODUCTS[0] || null,
-  acc: { tab: "orders", signed: false, phone: "", authMode: "login", devCode: "", pendingPhone: "", pendingUser: null },
-  adm: { tab: "products", products: [], orders: [], reviews: [], reviewsLoaded: false },
+  acc: {
+    tab: "orders", signed: false, phone: "", authMode: "login", devCode: "",
+    pendingPhone: "", pendingUser: null,
+    loginRole: "customer", pending: null, mfaSetup: null, unlockPhone: "", unlockSent: false,
+  },
+  adm: { tab: "products", products: [], orders: [], reviews: [], reviewsLoaded: false, employees: [], employeesLoaded: false },
   orderFetched: {},
   blendBase: null,
   blendNotes: null,
@@ -61,14 +64,18 @@ export function setLang(lang) {
   notify();
 }
 
-/* ---------------- toast & panels ---------------- */
-let toastTimer = null;
+/* ---------------- toast & panels ----------------
+   Every store-level message goes through the shared SweetAlert2 helper, so the
+   storefront and all three portals give identical feedback. */
 export function toast(msg) {
   state.toast = { msg, id: (state.toast && state.toast.id + 1) || 1 };
   notify();
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { state.toast = null; notify(); }, 3200);
+  sweetNotify.info(String(msg));
 }
+
+/* Optional explicit variants for callers that know the outcome. */
+export function toastSuccess(msg) { sweetNotify.success(String(msg)); }
+export function toastError(msg) { sweetNotify.error(String(msg)); }
 
 export function openPanel(name) { state.panel[name] = true; notify(); }
 export function closePanels() { state.panel = { cart: false, mobile: false, search: false }; notify(); }
@@ -285,6 +292,42 @@ export function bookSession(values) {
 
 export function newsSignup() { toast(t("subscribed")); }
 
+/* Join the WhatsApp / email broadcast list. Falls back to keeping the contact
+   locally so the shop still collects it when the API is unreachable. */
+export function subscribeNewsletter(contact, opts = {}) {
+  const value = String(contact || "").trim();
+  if (!value) { sweetNotify.warning(t("sub_need_contact")); return Promise.resolve(false); }
+
+  return api.post("/subscribers", {
+    contact: value,
+    name: opts.name || (state.user && state.user.name) || undefined,
+    source: opts.source || "footer",
+    language: state.lang,
+  })
+    .then(r => {
+      if (r && r.alreadySubscribed) sweetNotify.info(t("sub_already"));
+      else sweetNotify.success(t("subscribed"));
+      const list = load("imibavu_subscribers", []);
+      if (!list.some(s => s.phone === value)) {
+        list.push({ phone: value, at: new Date().toISOString(), source: opts.source || "footer" });
+        save("imibavu_subscribers", list);
+      }
+      notify();
+      return true;
+    })
+    .catch(err => {
+      /* Still capture the sign-up locally, and say so honestly. */
+      const list = load("imibavu_subscribers", []);
+      if (!list.some(s => s.phone === value)) {
+        list.push({ phone: value, at: new Date().toISOString(), source: opts.source || "footer", pending: true });
+        save("imibavu_subscribers", list);
+      }
+      notify();
+      sweetNotify.warning(errText(err, t("sub_offline")));
+      return false;
+    });
+}
+
 /* -------- product page -------- */
 export function setPdSize(i) { state.pd.size = i; notify(); }
 export function setPdImg(i) { state.pd.img = i; notify(); }
@@ -429,7 +472,7 @@ function normPhone(raw) {
   if (/^250\d{9}$/.test(p)) p = "+" + p;
   return p;
 }
-const toState = u => ({ id: u.id, name: u.name, phone: u.phone, email: u.email, role: u.role, isVerified: u.isVerified });
+const toState = u => ({ id: u.id, name: u.name, phone: u.phone, email: u.email, role: u.role, isVerified: u.isVerified, mfaEnabled: !!u.mfaEnabled, mustChangePassword: !!u.mustChangePassword });
 
 function afterAuth() {
   loadBlends();
@@ -439,19 +482,85 @@ function afterAuth() {
 
 export function authMode(mode) { state.acc.authMode = mode; state.acc.devCode = ""; notify(); }
 
+export function setLoginRole(role) { state.acc.loginRole = role; notify(); }
+
+/* One place to interpret every auth-shaped response: either a finished session
+   (user + accessToken) or a "pending" login that still needs a password change
+   or MFA step. */
+function handleAuthResult(r) {
+  if (r && r.accessToken && r.user) {
+    api.setAccessToken(r.accessToken);
+    state.user = toState(r.user);
+    save("imibavu_user", state.user);
+    try { api.post("/cart/merge", { guestId: api.guestId() }).catch(() => {}); } catch (e) {}
+    state.acc.pending = null; state.acc.pendingUser = null; state.acc.mfaSetup = null; state.acc.devCode = "";
+    afterAuth();
+    toast("Signed in ✓");
+  } else if (r && r.pending) {
+    state.acc.pendingUser = r.user ? toState(r.user) : state.acc.pendingUser;
+    state.acc.pending = r.pending;
+    state.acc.devCode = r.devCode || "";
+    if (r.pending.step !== "mfa-setup") state.acc.mfaSetup = null;
+  }
+  notify();
+  return r;
+}
+
 export function login(values) {
   return api.post("/auth/login", {
     identifier: String(values.id || "").trim(),
     password: values.password,
-  }).then(async r => {
-    api.setAccessToken(r.accessToken);
-    state.user = toState(r.user); save("imibavu_user", state.user);
-    try { await api.post("/cart/merge", { guestId: api.guestId() }); } catch (e) {}
-    afterAuth();
-    state.acc.authMode = "login"; state.acc.devCode = "";
-    toast("Signed in ✓");
+    role: state.acc.loginRole,
+  }).then(r => handleAuthResult(r));
+}
+
+/* First-login password change (no current password — we just verified it). */
+export function changePendingPassword(newPassword) {
+  return api.post("/auth/password/change", {
+    pendingToken: state.acc.pending && state.acc.pending.token,
+    newPassword,
+  }).then(r => handleAuthResult(r));
+}
+
+/* MFA setup: fetch the authenticator secret + otpauth:// URI for the QR code. */
+export function startMfaSetup() {
+  return api.post("/auth/mfa/setup", { pendingToken: state.acc.pending && state.acc.pending.token })
+    .then(r => { state.acc.mfaSetup = { secret: r.secret, otpauth: r.otpauth }; notify(); return r; });
+}
+
+/* MFA challenge / confirming a freshly-scanned authenticator. */
+export function verifyMfa(code) {
+  return api.post("/auth/mfa/verify", {
+    pendingToken: state.acc.pending && state.acc.pending.token,
+    code: String(code || "").trim(),
+  }).then(r => handleAuthResult(r));
+}
+
+export function disableMfa(code) {
+  return api.post("/auth/mfa/disable", { code: String(code || "").trim() })
+    .then(() => { if (state.user) { state.user.mfaEnabled = false; save("imibavu_user", state.user); } toast("Two-step verification turned off"); notify(); });
+}
+
+export function googleLogin(idToken) {
+  return api.post("/auth/google", { idToken }).then(r => handleAuthResult(r));
+}
+
+export function unlockSend(phone) {
+  const p = normPhone(phone);
+  return api.post("/auth/unlock", { phone: p }).then(r => {
+    state.acc.unlockPhone = p; state.acc.pendingPhone = p; state.acc.unlockSent = true;
+    state.acc.devCode = r.devCode || "";
     notify();
   });
+}
+
+export function unlockVerify(code) {
+  return api.post("/auth/unlock/verify", { phone: state.acc.unlockPhone, code: String(code || "").trim() })
+    .then(() => {
+      state.acc.unlockSent = false; state.acc.devCode = "";
+      toast("Account unlocked — you can sign in now");
+      notify();
+    });
 }
 
 export function register(values) {
@@ -520,6 +629,8 @@ export function logout() {
   api.logout();
   state.user = null; save("imibavu_user", null);
   state.acc.authMode = "login"; state.acc.devCode = "";
+  state.acc.pending = null; state.acc.pendingUser = null; state.acc.mfaSetup = null;
+  state.acc.unlockPhone = ""; state.acc.unlockSent = false;
   state.loyalty = null;
   notify();
 }
@@ -664,6 +775,9 @@ export function loadAdminData() {
       });
     }, 0);
   }
+  if (state.adm.tab === "employees" && !state.adm.employeesLoaded) {
+    setTimeout(() => { adminLoadEmployees(); }, 0);
+  }
 }
 
 export function admTab(k) { state.adm.tab = k; notify(); }
@@ -712,12 +826,60 @@ export function admStatus(i, v) {
   toast("Order status: " + v); notify();
 }
 
+/* The order UI speaks in shop labels; the API speaks in the Order schema enum.
+   Keep the two in one place so a status change can never be silently dropped. */
+const ORDER_STATUS_TO_API = {
+  Received: "pending",
+  Pending: "pending",
+  Confirmed: "confirmed",
+  Packed: "processing",
+  Processing: "processing",
+  "Out for delivery": "shipped",
+  Shipped: "shipped",
+  Delivered: "delivered",
+  Cancelled: "cancelled",
+  Canceled: "cancelled",
+};
+const ORDER_STATUS_FROM_API = {
+  pending: "Received",
+  confirmed: "Confirmed",
+  processing: "Packed",
+  shipped: "Out for delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
 export function admOrderStatus(code, v) {
-  let hit = state.orders.find(x => x.code === code);
-  if (hit) { hit.status = v; save("imibavu_orders", state.orders); }
+  const apiStatus = ORDER_STATUS_TO_API[v] || String(v).toLowerCase();
+  const label = ORDER_STATUS_FROM_API[apiStatus] || v;
+
+  /* Optimistic: update both the customer list and the admin list at once. */
+  const hit = state.orders.find(x => x.code === code);
+  if (hit) { hit.status = label; save("imibavu_orders", state.orders); }
   const srv = state.adm.orders.find(x => x.code === code);
-  if (srv) srv.status = v;
-  toast("Order status: " + v); notify();
+  if (srv) srv.status = label;
+  notify();
+
+  /* Persist to the API. The server row is addressed by _id, and only orders
+     that actually exist server-side can be updated. */
+  const record = state.adm.orders.find(x => x.code === code);
+  const id = record && (record._id || record.id);
+  if (!id || !api.getAccessToken()) {
+    if (!id) sweetNotify.warning("Saved on this device only — this order is not on the server yet.");
+    return Promise.resolve(false);
+  }
+
+  return api.patch("/admin/orders/" + encodeURIComponent(id), { status: apiStatus })
+    .then(() => { sweetNotify.success(`Order ${code} → ${label}`); return true; })
+    .catch(err => {
+      /* Put the previous value back so the board never lies about the server. */
+      const previous = ORDER_STATUS_FROM_API[record.status] || record.status;
+      if (srv) srv.status = previous;
+      if (hit) { hit.status = previous; save("imibavu_orders", state.orders); }
+      notify();
+      sweetNotify.error(errorMsg(err, "Could not update the order status"));
+      return false;
+    });
 }
 
 export function admPromo(i) {
@@ -738,6 +900,148 @@ export function admRev2(id) {
     const next = r.status === "hidden" ? "approved" : "hidden";
     api.patch("/admin/reviews/" + id, { status: next }).then(() => { r.status = next; notify(); }).catch(() => {});
   }
+}
+
+/* -------- admin: server-backed catalog & people ----------
+   Every mutation hits /api/v1/admin/* and then refreshes the public catalog so
+   the storefront reflects changes immediately. Server is the source of truth. */
+
+function errorMsg(err, fallback) {
+  return (err && err.message) || fallback;
+}
+
+/* Map the editor's product shape to the API body (sizes -> [{label, price}]). */
+function toApiProduct(values = {}) {
+  const sizes = (values.sizes || [])
+    .map(s => (Array.isArray(s) ? { label: String(s[0]), price: Number(s[1]) } : { label: String(s.label || ""), price: Number(s.price) }))
+    .filter(s => s.label);
+  const images = (values.images || []).map((im, i) =>
+    typeof im === "string" ? { url: im, alt: "", primary: i === 0 } : { url: im.url, alt: im.alt || "", primary: !!im.primary }
+  ).filter(im => im.url);
+  const body = {
+    name: String(values.name || "").trim(),
+    desc: String(values.desc || "").trim(),
+    brand: String(values.brand || "imibavu").trim(),
+    category: values.category || "perfumes",
+    gender: values.gender || "Unisex",
+    family: String(values.family || "").trim(),
+    longevity: values.longevity || "moderate",
+    price: Number(values.price || 0),
+    sizes: sizes.length ? sizes : [{ label: "50", price: Number(values.price || 0) }],
+    stock: values.stock || "in",
+    status: values.status || "published",
+    color: values.color || "#b08d4f",
+    notes: values.notes || { top: [], heart: [], base: [] },
+    season: String(values.season || "").trim(),
+    inspired: values.inspired || null,
+    images,
+  };
+  if (values.slug) body.slug = values.slug;
+  if (values.rating !== undefined) body.rating = Number(values.rating);
+  if (values.tags) body.tags = values.tags;
+  if (values.i18n) body.i18n = values.i18n;
+  if (values.seo) body.seo = values.seo;
+  return body;
+}
+
+export function adminLoadProducts() {
+  if (!api.getAccessToken()) return Promise.resolve(null);
+  return api.get("/admin/products?limit=200")
+    .then(r => { state.adm.products = r.items || []; return loadCatalog().then(() => state.adm.products); })
+    .catch(err => { toastError(errorMsg(err, "Could not load products")); return null; });
+}
+
+export function adminSaveProduct(values, id) {
+  const body = toApiProduct(values);
+  if (!id) body.slug = body.slug || (body.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now().toString(36));
+  const req = id
+    ? api.patch("/admin/products/" + encodeURIComponent(id), body)
+    : api.post("/admin/products", body);
+  return req
+    .then(r => { toastSuccess(id ? "Product updated ✓" : "Product created ✓"); return adminLoadProducts().then(() => r.product); })
+    .catch(err => { toastError(errorMsg(err, "Could not save product")); throw err; });
+}
+
+export function adminDeleteProduct(id) {
+  return api.del("/admin/products/" + encodeURIComponent(id))
+    .then(() => { toastSuccess("Product deleted"); return adminLoadProducts(); })
+    .catch(err => { toastError(errorMsg(err, "Could not delete product")); throw err; });
+}
+
+export function adminSetStock(id, stock) {
+  return api.patch("/admin/products/" + encodeURIComponent(id), { stock })
+    .then(() => adminLoadProducts())
+    .catch(err => toastError(errorMsg(err, "Could not update stock")));
+}
+
+export function adminSetPrice(id, price, sizes) {
+  const body = { price: Number(price) };
+  if (sizes) body.sizes = sizes;
+  return api.patch("/admin/products/" + encodeURIComponent(id), body)
+    .then(() => { toastSuccess("Price updated"); return adminLoadProducts(); })
+    .catch(err => { toastError(errorMsg(err, "Could not update price")); throw err; });
+}
+
+export function adminSetStatus(id, status) {
+  return api.patch("/admin/products/" + encodeURIComponent(id), { status })
+    .then(() => { toastSuccess(status === "published" ? "Product published" : status === "archived" ? "Product archived" : "Saved as draft"); return adminLoadProducts(); })
+    .catch(err => { toastError(errorMsg(err, "Could not change status")); throw err; });
+}
+
+export function adminSetStatusMany(ids, status) {
+  return Promise.all(ids.map(id => api.patch("/admin/products/" + encodeURIComponent(id), { status })))
+    .then(() => { toastSuccess(`${ids.length} product(s) updated`); return adminLoadProducts(); })
+    .catch(err => { toastError(errorMsg(err, "Bulk update failed")); throw err; });
+}
+
+/* Upload one or more image files; returns [{ url, alt, primary }]. */
+export function adminUploadImages(files) {
+  const fd = new FormData();
+  Array.from(files).forEach(f => fd.append("images", f));
+  return api.postForm("/admin/uploads", fd)
+    .then(r => r.files || [])
+    .catch(err => { toastError(errorMsg(err, "Image upload failed")); throw err; });
+}
+
+export function adminUpsertBrand(body) {
+  return api.post("/admin/brands", body)
+    .then(r => { toastSuccess("Brand saved"); return loadCatalog().then(() => r.brand); })
+    .catch(err => { toastError(errorMsg(err, "Could not save brand")); throw err; });
+}
+
+/* -------- admin: employees (Super Admin only) -------- */
+export function adminLoadEmployees(q) {
+  if (!api.getAccessToken()) return Promise.resolve(null);
+  const qs = q ? "?q=" + encodeURIComponent(q) : "";
+  return api.get("/admin/employees" + qs)
+    .then(r => { state.adm.employees = r.items || []; state.adm.employeesLoaded = true; notify(); return state.adm.employees; })
+    .catch(err => { toastError(errorMsg(err, "Could not load employees")); return null; });
+}
+
+export function adminSaveEmployee(values, id) {
+  const body = {
+    name: String(values.name || "").trim(),
+    phone: String(values.phone || "").trim(),
+    email: String(values.email || "").trim(),
+    permissionPreset: values.permissionPreset || null,
+    permissions: values.permissions || values.areas || [],
+    isActive: values.isActive !== false,
+  };
+  const req = id
+    ? api.patch("/admin/employees/" + encodeURIComponent(id), body)
+    : api.post("/admin/employees", body);
+  return req
+    .then(r => {
+      toastSuccess(id ? "Employee updated ✓" : "Employee added ✓");
+      return adminLoadEmployees().then(() => r);
+    })
+    .catch(err => { toastError(errorMsg(err, "Could not save employee")); throw err; });
+}
+
+export function adminSetEmployeeActive(id, isActive) {
+  return api.patch("/admin/employees/" + encodeURIComponent(id) + "/active", { isActive })
+    .then(r => { toastSuccess(isActive ? "Employee activated" : "Employee suspended"); return adminLoadEmployees().then(() => r.employee); })
+    .catch(err => { toastError(errorMsg(err, "Could not update employee")); throw err; });
 }
 
 /* -------- boot -------- */

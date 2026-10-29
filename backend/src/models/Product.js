@@ -17,6 +17,39 @@ const notesSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const imageSchema = new mongoose.Schema(
+  {
+    url: { type: String, required: true },
+    alt: { type: String, default: "" },
+    primary: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const localizedSchema = new mongoose.Schema(
+  {
+    name: { type: String, default: "" },
+    desc: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const i18nSchema = new mongoose.Schema(
+  {
+    rw: { type: localizedSchema, default: () => ({}) },
+    fr: { type: localizedSchema, default: () => ({}) },
+  },
+  { _id: false }
+);
+
+const seoSchema = new mongoose.Schema(
+  {
+    title: { type: String, default: "" },
+    desc: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -42,11 +75,26 @@ const productSchema = new mongoose.Schema(
     rating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0, min: 0 },
     season: { type: String, default: "" },
-    images: { type: [String], default: [] },
+    images: { type: [imageSchema], default: [] },
+    i18n: { type: i18nSchema, default: () => ({}) },
+    seo: { type: seoSchema, default: () => ({}) },
+    status: {
+      type: String,
+      enum: ["draft", "published", "archived"],
+      default: "published",
+      index: true,
+    },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
+
+/* Keep `isActive` (used by the public catalog queries) in lock-step with the
+   editorial `status` field so the shop only ever shows published products. */
+productSchema.pre("save", function syncActive(next) {
+  this.isActive = this.status === "published";
+  next();
+});
 
 productSchema.index({ name: "text", desc: "text", family: "text" });
 productSchema.index({ category: 1, brand: 1, price: 1 });

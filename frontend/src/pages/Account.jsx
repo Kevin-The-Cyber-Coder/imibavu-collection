@@ -1,73 +1,24 @@
-import { useState } from "react";
-import { useStore, state, authMode, login, register, verify, resetPassword, otpResend, forgotPassword, logout, accTab, loadLoyalty, addToCart, toggleWish, blendLoad, blendDel, prod } from "../store";
+import { useStore, state, logout, accTab, loadLoyalty, addToCart, toggleWish, blendLoad, blendDel, prod } from "../store";
 import { t } from "../i18n";
 import { money, brandName } from "../utils";
 import ProductImage from "../components/ProductImage";
 
 export default function Account() {
   useStore();
-  const m = state.acc.authMode;
-  const [f, setF] = useState({ id: "", password: "", name: "", phone: "", email: "", code: "" });
-  const [busy, setBusy] = useState(false);
 
   if (!state.user) {
-    const title = m === "register" ? "Create account" : m === "reset" ? "Reset password" : m === "verify" ? "Verify your phone" : t("login_title");
-    const sub = (m === "verify" || m === "reset") && state.acc.devCode
-      ? <span>Console OTP: <b>{state.acc.devCode}</b> (SMS goes live when Africa's Talking keys are set)</span>
-      : t("login_sub");
-    const submit = e => {
-      e.preventDefault();
-      if (busy) return;
-      setBusy(true);
-      const run = m === "login" ? login(f) : m === "register" ? register(f) : m === "verify" ? verify(f.code) : resetPassword(f);
-      run.finally(() => setBusy(false)).catch(() => {});
-    };
     return (
       <>
-        <div className="page-head"><div className="container"><span className="kicker">{t("account")}</span><h1>{title}</h1><p>{sub}</p></div></div>
+        <div className="page-head"><div className="container"><span className="kicker">{t("account")}</span><h1>{t("login_title")}</h1><p>{t("login_sub")}</p></div></div>
         <div className="page-body"><div className="container" style={{ maxWidth: 460 }}>
-          <form className="card-box" onSubmit={submit}>
-            {m === "login" && (
-              <>
-                <div className="field"><label>{t("phone_num")}</label><input name="id" placeholder="+250 784 804 739" value={f.id} onChange={e => setF({ ...f, id: e.target.value })} required /></div>
-                <div className="field" style={{ marginTop: 12 }}><label>Password</label><input name="password" type="password" autoComplete="current-password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} required /></div>
-                <button className="btn full" style={{ marginTop: 16 }} type="submit" disabled={busy}>{t("continue")}</button>
-                <p className="form-note" style={{ marginTop: 12 }}>
-                  <button type="button" className="link" onClick={() => authMode("reset")}>Forgot password?</button> · <button type="button" className="link" onClick={() => authMode("register")}>Create an account</button>
-                </p>
-              </>
-            )}
-            {m === "register" && (
-              <>
-                <div className="field"><label>{t("full_name")}</label><input name="name" placeholder="Your name" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} required /></div>
-                <div className="field" style={{ marginTop: 12 }}><label>{t("phone_num")}</label><input name="phone" placeholder="+250 784 804 739" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} required /></div>
-                <div className="field" style={{ marginTop: 12 }}><label>Email (optional)</label><input name="email" type="email" placeholder="you@example.com" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} /></div>
-                <div className="field" style={{ marginTop: 12 }}><label>Password</label><input name="password" type="password" autoComplete="new-password" minLength={8} value={f.password} onChange={e => setF({ ...f, password: e.target.value })} required />
-                  <small className="muted">At least 8 characters, with a letter and a number.</small></div>
-                <button className="btn full" style={{ marginTop: 16 }} type="submit" disabled={busy}>{t("continue")}</button>
-                <p className="form-note" style={{ marginTop: 12 }}><button type="button" className="link" onClick={() => authMode("login")}>I already have an account</button></p>
-              </>
-            )}
-            {m === "verify" && (
-              <>
-                <div className="field"><label>6-digit code</label><input name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} placeholder="123456" value={f.code} onChange={e => setF({ ...f, code: e.target.value })} required /></div>
-                <button className="btn full" style={{ marginTop: 16 }} type="submit" disabled={busy}>Verify</button>
-                <p className="form-note" style={{ marginTop: 12 }}>
-                  <button type="button" className="link" onClick={otpResend}>Resend code</button> · <button type="button" className="link" onClick={() => authMode("login")}>Back to sign in</button>
-                </p>
-              </>
-            )}
-            {m === "reset" && (
-              <>
-                <div className="field"><label>{t("phone_num")}</label><input name="phone" placeholder="+250 784 804 739" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} required />
-                  <button type="button" className="link" style={{ display: "inline", marginTop: 4 }} onClick={() => forgotPassword(f)}>Send code</button></div>
-                <div className="field" style={{ marginTop: 12 }}><label>New password</label><input name="password" type="password" autoComplete="new-password" minLength={8} value={f.password} onChange={e => setF({ ...f, password: e.target.value })} required /></div>
-                <div className="field" style={{ marginTop: 12 }}><label>Code sent by SMS</label><input name="code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} placeholder="123456" value={f.code} onChange={e => setF({ ...f, code: e.target.value })} /></div>
-                <button className="btn full" style={{ marginTop: 16 }} type="submit" disabled={busy}>Reset password</button>
-                <p className="form-note" style={{ marginTop: 12 }}><button type="button" className="link" onClick={() => authMode("login")}>Back to sign in</button></p>
-              </>
-            )}
-          </form>
+          <div className="empty-state">
+            <h3>{t("account_dash")}</h3>
+            <p className="muted">Sign in to view orders, your wishlist, saved blends and rewards.</p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginTop: 12 }}>
+              <a className="btn" href="#/login">{t("log_signin")}</a>
+              <a className="btn ghost" href="#/login?mode=register">{t("log_create")}</a>
+            </div>
+          </div>
         </div></div>
       </>
     );

@@ -39,6 +39,12 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 app.use(mongoSanitize());
 
+// Uploaded product images are served straight from disk.
+app.use(
+  "/uploads",
+  express.static(require("./middleware/upload").UPLOADS_DIR, { maxAge: "7d" })
+);
+
 app.get("/api/v1/health", (req, res) => {
   const mongoose = require("mongoose");
   res.json({
@@ -61,6 +67,7 @@ app.use("/api/v1/scent-finder", require("./routes/scent.routes"));
 app.use("/api/v1/reviews", require("./routes/reviews.routes"));
 app.use("/api/v1/wishlist", require("./routes/wishlist.routes"));
 app.use("/api/v1/loyalty", require("./routes/loyalty.routes"));
+app.use("/api/v1/subscribers", require("./routes/subscribers.routes"));
 app.use("/api/v1/admin", require("./routes/admin.routes"));
 
 app.use("/api", notFound);

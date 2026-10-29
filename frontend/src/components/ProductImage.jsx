@@ -5,8 +5,13 @@ import { realImg, productImg, neutralImg } from "../utils";
    Falls back to the branded SVG art if the image cannot load (e.g. offline). */
 export default function ProductImage({ product, view = 0, alt, className, loading }) {
   const [err, setErr] = useState(false);
-  useEffect(() => { setErr(false); }, [product.id, view]);
-  const src = err ? productImg(product, view) : realImg(`${product.id}-${view}`, 700, 875);
+  /* Prefer an image uploaded by staff; fall back to the branded placeholder. */
+  const imgs = Array.isArray(product.images) ? product.images : [];
+  const raw = imgs[view] || imgs[0];
+  let uploaded = raw ? (typeof raw === "string" ? raw : raw.url || "") : "";
+  if (!uploaded && product.image) uploaded = product.image;
+  useEffect(() => { setErr(false); }, [product.id, view, uploaded]);
+  const src = uploaded && !err ? uploaded : err ? productImg(product, view) : realImg(`${product.id}-${view}`, 700, 875);
   return (
     <img className={className} src={src} alt={alt || product.name} loading={loading} onError={() => setErr(true)} />
   );

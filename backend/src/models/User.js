@@ -1,5 +1,14 @@
 const mongoose = require("mongoose");
 
+const mfaSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    secret: { type: String, select: false },
+    otpauth: { type: String },
+  },
+  { _id: false }
+);
+
 const addressSchema = new mongoose.Schema(
   {
     label: { type: String, default: "Home" },
@@ -37,10 +46,18 @@ const userSchema = new mongoose.Schema(
       default: "customer",
     },
     isVerified: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true },
     language: { type: String, enum: ["en", "rw", "fr"], default: "en" },
+    // Employee access control: a preset is only a template; `permissions` holds
+    // the exact granted areas the backend enforces.
+    permissionPreset: { type: String, default: null },
+    permissions: { type: [String], default: [] },
     addresses: [addressSchema],
     failedLoginAttempts: { type: Number, default: 0 },
     lockedUntil: { type: Date, default: null },
+    lastLoginAt: { type: Date, default: null },
+    mustChangePassword: { type: Boolean, default: false },
+    mfa: mfaSchema,
     refreshHash: { type: String, select: false },
   },
   { timestamps: true }
@@ -56,9 +73,15 @@ userSchema.methods.toPublic = function () {
     phone: this.phone || "",
     role: this.role,
     isVerified: this.isVerified,
+    isActive: this.isActive !== false,
+    mustChangePassword: this.mustChangePassword,
+    mfaEnabled: Boolean(this.mfa && this.mfa.enabled),
+    permissionPreset: this.permissionPreset || null,
+    permissions: this.permissions || [],
     language: this.language,
     addresses: this.addresses,
     createdAt: this.createdAt,
+    lastLoginAt: this.lastLoginAt || null,
   };
 };
 

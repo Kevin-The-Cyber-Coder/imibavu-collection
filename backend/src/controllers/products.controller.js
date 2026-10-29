@@ -4,9 +4,18 @@ const asyncHandler = require("../utils/asyncHandler");
 
 // Convert a Mongo product into the exact shape js/data.js products have,
 // so the existing frontend render code keeps working unchanged.
+// Accepts both legacy string images and the richer { url, alt, primary } form.
+function normalizeImages(images) {
+  return (images || []).map((im, i) => {
+    if (typeof im === "string") return { url: im, alt: "", primary: i === 0 };
+    return { url: im.url || "", alt: im.alt || "", primary: !!im.primary };
+  });
+}
+
 function toPublicProduct(p) {
   const doc = p.toObject ? p.toObject() : p;
   const tags = doc.tags || [];
+  const images = normalizeImages(doc.images);
   return {
     id: doc.slug,
     slug: doc.slug,
@@ -29,7 +38,11 @@ function toPublicProduct(p) {
     reviews: doc.reviewCount,
     season: doc.season,
     desc: doc.desc,
-    images: doc.images || [],
+    images,
+    image: (images[0] && images[0].url) || "",
+    status: doc.status || (doc.isActive === false ? "draft" : "published"),
+    i18n: doc.i18n || { rw: { name: "", desc: "" }, fr: { name: "", desc: "" } },
+    seo: doc.seo || { title: "", desc: "" },
   };
 }
 
@@ -103,4 +116,4 @@ const getProduct = asyncHandler(async (req, res) => {
   res.json({ product: toPublicProduct(p) });
 });
 
-module.exports = { listProducts, getProduct, toPublicProduct };
+module.exports = { listProducts, getProduct, toPublicProduct, normalizeImages };

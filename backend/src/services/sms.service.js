@@ -36,7 +36,11 @@ async function sendSms(to, message) {
 
 async function sendOtp(phone, code, purpose) {
   const label =
-    purpose === "reset_password" ? "password reset" : "verification";
+    purpose === "reset_password"
+      ? "password reset"
+      : purpose === "unlock"
+        ? "account unlock"
+        : "verification";
   return sendSms(
     phone,
     `Imibavu Collection ${label} code: ${code}. Valid 5 minutes. Do not share it.`

@@ -62,7 +62,7 @@ export default function Shop({ p }) {
               <input type="number" min={0} step={500} placeholder="Max" value={f.max === "" ? "" : f.max} aria-label="Max price" onChange={e => setFilterDirect("max", e.target.value)} />
               <span className="muted" style={{ whiteSpace: "nowrap" }}>{money(f.min === "" ? 0 : +f.min)} — {money(f.max === "" ? 400000 : +f.max)}</span>
             </div>
-            <button className="btn ghost sm" style={{ marginTop: 14 }} onClick={clearFilters}>{t("reset")}</button>
+            <button className="btn ghost sm" style={{ marginTop: 14 }} onClick={clearFilters}>{t("reset_filters")}</button>
           </div>
         )}
 

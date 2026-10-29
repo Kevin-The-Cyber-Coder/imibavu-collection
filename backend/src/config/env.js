@@ -45,6 +45,18 @@ const env = {
     email: process.env.ADMIN_EMAIL || "",
     password: process.env.ADMIN_PASSWORD || "",
   },
+  auth: {
+    // Force MFA setup for staff/administrator accounts, and MFA at login for
+    // every account that has it enabled. Off by default in dev so local flows
+    // stay frictionless; set MFA_REQUIRED=true (recommended in production).
+    mfaRequired: process.env.MFA_REQUIRED === "true",
+    // Optional Google sign-in for customers. Leave GOOGLE_CLIENT_ID empty to
+    // disable the endpoint entirely.
+    googleClientId: process.env.GOOGLE_CLIENT_ID || "",
+    mfaIssuer: process.env.MFA_ISSUER || "Imibavu Collection",
+    lockMinutes: Number(process.env.LOCK_MINUTES || 15),
+    maxFailedLogins: Number(process.env.MAX_FAILED_LOGINS || 5),
+  },
   sms: {
     // "console" logs OTPs to the server log (dev default); "sms" sends real
     // messages via Africa's Talking (requires AT_API_KEY + AT_USERNAME).

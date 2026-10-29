@@ -88,12 +88,35 @@ export const api = (() => {
   const patch = (path, body) => request(path, { method: "PATCH", body: body || {} });
   const del = (path) => request(path, { method: "DELETE" });
 
+  /* Multipart upload — used for product images (no JSON body/Content-Type). */
+  async function postForm(path, formData) {
+    const headers = { "x-guest-id": guestId() };
+    if (accessToken) headers["Authorization"] = "Bearer " + accessToken;
+    let res;
+    try {
+      res = await fetch(API_BASE + path, { method: "POST", headers, body: formData, credentials: "include" });
+    } catch (e) {
+      throw { status: 0, code: "NETWORK", message: "Cannot reach the server — are you online?" };
+    }
+    if (res.status === 401) {
+      const ok = await refresh();
+      if (ok) return postForm(path, formData);
+    }
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* empty body */ }
+    if (!res.ok) {
+      const err = (data && data.error) || {};
+      throw { status: res.status, code: err.code || "ERROR", message: err.message || "Upload failed", details: err.details };
+    }
+    return data;
+  }
+
   async function logout() {
     try { await post("/auth/logout"); } catch (e) { /* cookie may already be gone */ }
     accessToken = null;
   }
 
-  return { get, post, put, patch, del, refresh, logout, setAccessToken, getAccessToken, guestId };
+  return { get, post, put, patch, del, postForm, refresh, logout, setAccessToken, getAccessToken, guestId };
 })();
 
 export default api;

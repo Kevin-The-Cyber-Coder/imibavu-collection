@@ -2,10 +2,14 @@ const Product = require("../models/Product");
 const Brand = require("../models/Brand");
 const ApiError = require("../utils/ApiError");
 const asyncHandler = require("../utils/asyncHandler");
-const { toPublicProduct } = require("../controllers/products.controller");
+const { toPublicProduct, normalizeImages } = require("../controllers/products.controller");
 
 function parseSizes(sizes = []) {
   return (sizes || []).map((s) => ({ label: s.label, price: Number(s.price) })).filter((s) => s.label && s.price >= 0);
+}
+
+function statusToActive(status) {
+  return status ? status === "published" : undefined;
 }
 
 const adminListProducts = asyncHandler(async (req, res) => {
@@ -25,6 +29,13 @@ const adminListProducts = asyncHandler(async (req, res) => {
     page,
     pages: Math.ceil(total / limit) || 1,
   });
+});
+
+const adminGetProduct = asyncHandler(async (req, res) => {
+  const p = await Product.findById(req.params.id);
+  if (!p) throw ApiError.notFound("Product not found");
+  const obj = p.toObject ? p.toObject() : p;
+  res.json({ product: { ...toPublicProduct(p), _id: obj._id, isActive: obj.isActive } });
 });
 
 const adminCreateProduct = asyncHandler(async (req, res) => {
@@ -51,8 +62,11 @@ const adminCreateProduct = asyncHandler(async (req, res) => {
     rating: Number(req.body.rating || 0),
     reviewCount: Number(req.body.reviewCount || 0),
     season: String(req.body.season || "").trim(),
-    images: Array.isArray(req.body.images) ? req.body.images : [],
-    isActive: req.body.isActive !== false,
+    images: normalizeImages(req.body.images),
+    i18n: req.body.i18n || undefined,
+    seo: req.body.seo || undefined,
+    status: req.body.status || (req.body.isActive === false ? "draft" : "published"),
+    isActive: req.body.isActive !== false && (req.body.status || "published") === "published",
   });
   res.status(201).json({ product: { ...toPublicProduct(product), _id: (product.toObject ? product.toObject()._id : product._id), isActive: product.isActive } });
 });
@@ -78,8 +92,11 @@ const adminUpdateProduct = asyncHandler(async (req, res) => {
   if (req.body.rating !== undefined) product.rating = Number(req.body.rating);
   if (req.body.reviewCount !== undefined) product.reviewCount = Number(req.body.reviewCount);
   if (req.body.season !== undefined) product.season = String(req.body.season).trim();
-  if (req.body.images) product.images = req.body.images;
-  if (req.body.isActive !== undefined) product.isActive = !!req.body.isActive;
+  if (req.body.images) product.images = normalizeImages(req.body.images);
+  if (req.body.i18n) product.i18n = { ...(product.i18n || {}), ...req.body.i18n };
+  if (req.body.seo) product.seo = { ...(product.seo || {}), ...req.body.seo };
+  if (req.body.status) product.status = req.body.status;
+  else if (req.body.isActive !== undefined) product.status = req.body.isActive ? "published" : "draft";
   await product.save();
   res.json({ product: { ...toPublicProduct(product), _id: (product.toObject ? product.toObject()._id : product._id), isActive: product.isActive } });
 });
@@ -99,5 +116,24 @@ const adminUpsertBrand = asyncHandler(async (req, res) => {
   res.json({ brand: b });
 });
 
-module.exports = { adminListProducts, adminCreateProduct, adminUpdateProduct, adminDeleteProduct, adminUpsertBrand };
+/* Store one or more uploaded images and hand back their public URLs. */
+const adminUploadImages = asyncHandler(async (req, res) => {
+  const files = (req.files || []).map((f, i) => ({
+    url: `${req.protocol}://${req.get("host")}/uploads/${f.filename}`,
+    alt: "",
+    primary: i === 0,
+  }));
+  if (!files.length) throw ApiError.validation([{ path: "images", message: "No image files received" }]);
+  res.status(201).json({ files });
+});
+
+module.exports = {
+  adminListProducts,
+  adminGetProduct,
+  adminCreateProduct,
+  adminUpdateProduct,
+  adminDeleteProduct,
+  adminUpsertBrand,
+  adminUploadImages,
+};
 

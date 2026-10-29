@@ -1,36 +1,25 @@
-import { useStore, state, vis } from "../store";
+import { useState } from "react";
+import { useStore, vis, subscribeNewsletter } from "../store";
 import { t } from "../i18n";
 import { CATEGORIES, COLLECTIONS, DELIVERY_PROMO, TESTIMONIALS, ARTICLES, PRODUCTS, PAST_BLENDS } from "../data";
-import { waLink, realImg } from "../utils";
-import { FaWhatsapp, FiCheck, FiTruck, FiZap, FiCreditCard, FiArrowUpRight } from "../components/Icons";
+import { realImg } from "../utils";
+import { FiCheck, FiTruck, FiZap, FiCreditCard, FiArrowUpRight } from "../components/Icons";
 import ProductCard from "../components/ProductCard";
 import SectionHead from "../components/SectionHead";
-import ProductImage from "../components/ProductImage";
+import HeroSlider from "../components/HeroSlider";
 import Stars from "../components/Stars";
 
 const CAT_BG = { perfumes: "#4a3b2c,#17120e", oils: "#5a4a2c,#1b160f", jewelry: "#413a4f,#161320" };
 
 export default function Home() {
   useStore();
+  const [contact, setContact] = useState("");
+  const [busy, setBusy] = useState(false);
   const trending = PRODUCTS.filter(p => vis(p) && p.trending).slice(0, 4);
   const fresh = PRODUCTS.filter(p => vis(p) && p.isNew).slice(0, 4);
   return (
     <>
-      <section className="hero">
-        <div className="hero-art" />
-        <div className="hero-bottle-wrap"><ProductImage product={PRODUCTS[0]} className="hero-bottle" alt="" /></div>
-        <div className="container hero-inner">
-          <span className="kicker">{t("hero_kicker")}</span>
-          <h1>{t("hero_title")}</h1>
-          <p>{t("hero_sub")}</p>
-          <div className="hero-cta">
-            <a className="btn" href="#/shop">{t("hero_cta")}</a>
-            <a className="btn wa-btn" target="_blank" rel="noopener noreferrer" href={waLink("Hello Imibavu Collection, I would like help choosing a perfume.")}>
-              <FaWhatsapp /> {t("hero_cta2")}
-            </a>
-          </div>
-        </div>
-      </section>
+      <HeroSlider />
 
       <div className="trust-strip"><div className="container">
         <span>✓ {t("trust1")}</span><span>✓ {t("trust2")}</span><span>✓ {t("trust3")}</span><span>✓ {t("trust4")}</span>
@@ -140,8 +129,27 @@ export default function Home() {
           <span className="kicker">{t("nav_shop")} · Kigali</span>
           <h3>{t("newsletter")}</h3>
           <p>{t("newsletter_sub")}</p>
-          <form className="news-form" onSubmit={e => { e.preventDefault(); e.currentTarget.reset(); }}>
-            <input type="text" placeholder={t("phone_num")} required /><button className="btn gold" type="submit">{t("subscribe")}</button>
+          <form
+            className="news-form"
+            onSubmit={e => {
+              e.preventDefault();
+              if (busy) return;
+              setBusy(true);
+              Promise.resolve(subscribeNewsletter(contact, { source: "home" }))
+                .then(() => setContact(""))
+                .finally(() => setBusy(false));
+            }}
+          >
+            <input
+              type="text"
+              value={contact}
+              onChange={e => setContact(e.target.value)}
+              placeholder={t("sub_ph")}
+              aria-label={t("sub_ph")}
+              autoComplete="tel"
+              required
+            />
+            <button className="btn gold" type="submit" disabled={busy}>{busy ? t("log_working") : t("subscribe")}</button>
           </form>
         </div>
       </div></section>

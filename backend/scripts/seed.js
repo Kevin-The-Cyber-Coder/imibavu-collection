@@ -1,4 +1,4 @@
-/* Seeds MongoDB from the frontend's js/data.js (single source of truth).
+/* Seeds MongoDB from the frontend data layer (single source of truth).
    Usage: npm run seed  (safe to re-run — upserts by slug/id) */
 const fs = require("fs");
 const path = require("path");
@@ -14,8 +14,10 @@ const User = require("../src/models/User");
 const logger = require("../src/utils/logger");
 
 function loadData() {
-  const file = path.join(__dirname, "..", "..", "js", "data.js");
-  const src = fs.readFileSync(file, "utf8");
+  const file = path.join(__dirname, "..", "..", "frontend", "src", "data.js");
+  // The source is an ES module — strip the `export` keywords so it can run
+  // in a plain VM sandbox.
+  const src = fs.readFileSync(file, "utf8").replace(/^\s*export\s+/gm, "");
   const sandbox = {};
   vm.createContext(sandbox);
   return vm.runInContext(
@@ -62,7 +64,10 @@ function toProductDoc(p, collections) {
     rating: p.rating || 0,
     reviewCount: p.reviews || 0,
     season: p.season || "",
-    images: p.images || [],
+    images: (p.images || []).map((im, i) =>
+      typeof im === "string" ? { url: im, alt: "", primary: i === 0 } : im
+    ),
+    status: "published",
     isActive: true,
   };
 }
@@ -110,16 +115,18 @@ async function seed() {
         passwordHash: await bcrypt.hash(password, 10),
         role: a.role,
         isVerified: true,
+        mustChangePassword: true,
       });
     } else {
       /* demo accounts: always sync role + reset password to ADMIN_PASSWORD
-         so the published demo credentials always work */
-      let changed = false;
-      if (user.role !== a.role) { user.role = a.role; changed = true; }
-      if (a.phone && !user.phone) { user.phone = a.phone; changed = true; }
+         so the published demo credentials always work. The default password
+         is shared, so staff/admin must pick their own on first sign-in. */
+      if (user.role !== a.role) user.role = a.role;
+      if (a.phone && !user.phone) user.phone = a.phone;
       user.passwordHash = await bcrypt.hash(password, 10);
       user.failedLoginAttempts = 0;
       user.lockedUntil = null;
+      if (a.role !== "customer") user.mustChangePassword = true;
       await user.save();
     }
     seeded.push(a.email || a.phone);

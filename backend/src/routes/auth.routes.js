@@ -39,6 +39,7 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   identifier: z.string().trim().min(3, "Enter your phone or email"),
   password: z.string().min(1, "Password required"),
+  role: z.enum(["customer", "staff", "admin"]).optional(),
 });
 
 const otpSendSchema = z.object({
@@ -59,12 +60,36 @@ const resetSchema = z.object({
   newPassword: passwordSchema,
 });
 
+const pendingSchema = z.object({ pendingToken: z.string().min(10, "Missing session token") });
+
+const changePasswordSchema = pendingSchema.extend({ newPassword: passwordSchema });
+
+const mfaVerifySchema = pendingSchema.extend({ code: z.string().regex(/^\d{6}$/, "6-digit code") });
+
+const mfaCodeSchema = z.object({ code: z.string().regex(/^\d{6}$/, "6-digit code") });
+
+const unlockSchema = z.object({ phone: z.string().trim().min(8, "Phone required") });
+
+const unlockVerifySchema = z.object({
+  phone: z.string().trim().min(8, "Phone required"),
+  code: z.string().regex(/^\d{6}$/, "6-digit code"),
+});
+
+const googleSchema = z.object({ idToken: z.string().min(20, "Missing Google token") });
+
 router.post("/register", authLimiter, validate(registerSchema), c.register);
 router.post("/login", authLimiter, validate(loginSchema), c.login);
 router.post("/otp/send", otpLimiter, validate(otpSendSchema), c.otpSend);
 router.post("/otp/verify", otpLimiter, validate(otpVerifySchema), c.otpVerify);
 router.post("/forgot-password", otpLimiter, validate(forgotSchema), c.forgotPassword);
 router.post("/reset-password", authLimiter, validate(resetSchema), c.resetPassword);
+router.post("/password/change", authLimiter, validate(changePasswordSchema), c.changePassword);
+router.post("/mfa/setup", authLimiter, validate(pendingSchema), c.mfaSetup);
+router.post("/mfa/verify", authLimiter, validate(mfaVerifySchema), c.mfaVerify);
+router.post("/mfa/disable", protect, validate(mfaCodeSchema), c.mfaDisable);
+router.post("/unlock", otpLimiter, validate(unlockSchema), c.unlock);
+router.post("/unlock/verify", otpLimiter, validate(unlockVerifySchema), c.unlockVerify);
+router.post("/google", authLimiter, validate(googleSchema), c.google);
 router.post("/refresh", c.refresh);
 router.post("/logout", c.logout);
 router.get("/me", protect, c.me);

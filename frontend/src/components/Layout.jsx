@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore, state, closePanels, openPanel, setLang, setSearchQuery, cartCount, cartSubtotal, prod, syncCart, setQty, cartRemove, newsSignup } from "../store";
+import { useStore, state, closePanels, openPanel, setLang, setSearchQuery, cartCount, cartSubtotal, prod, syncCart, setQty, cartRemove, subscribeNewsletter } from "../store";
 import { t } from "../i18n";
 import { STORE, DELIVERY_PROMO, PRODUCTS } from "../data";
 import { brandName, money, waLink, sizeLabel } from "../utils";
@@ -56,7 +56,7 @@ function Header() {
             onClick={() => { setSq(""); state.panel.search ? closePanels() : openPanel("search"); }}>
             <FiSearch />
           </button>
-          <a className="icon-btn" href="#/account" aria-label="Account"><FiUser /></a>
+          <a className="icon-btn" href="#/login" aria-label="Account"><FiUser /></a>
           <button className="icon-btn cart-btn" aria-label="Open cart" onClick={() => { syncCart(); openPanel("cart"); }}>
             <FiShoppingBag />
             <span className="cart-count">{count}</span>
@@ -116,7 +116,7 @@ function MobileNav() {
         <a href="#/visit" onClick={closePanels}>{t("nav_visit")}</a>
         <a href="#/faq" onClick={closePanels}>{t("nav_faq")}</a>
         <a href="#/quiz" onClick={closePanels}>{t("quiz_title")}</a>
-        <a href="#/account" onClick={closePanels}>{t("account")}</a>
+        <a href="#/login" onClick={closePanels}>{t("account")}</a>
         <a href="#/admin" onClick={closePanels}>{t("admin")}</a>
       </nav>
       <a className="btn wa-btn full" href={waLink("Hello Imibavu Collection, I would like help choosing a perfume.")} target="_blank" rel="noopener noreferrer">
@@ -178,6 +178,8 @@ function CartDrawer() {
 }
 
 function Footer() {
+  const [contact, setContact] = useState("");
+  const [busy, setBusy] = useState(false);
   return (
     <footer className="site-footer" role="contentinfo">
       <div className="container footer-grid">
@@ -224,12 +226,23 @@ function Footer() {
             className="news-form"
             onSubmit={e => {
               e.preventDefault();
-              e.currentTarget.reset();
-              newsSignup();
+              if (busy) return;
+              setBusy(true);
+              Promise.resolve(subscribeNewsletter(contact, { source: "footer" }))
+                .then(() => setContact(""))
+                .finally(() => setBusy(false));
             }}
           >
-            <input type="text" placeholder={t("phone_num")} required aria-label="Phone or email" />
-            <button className="btn" type="submit">{t("subscribe")}</button>
+            <input
+              type="text"
+              value={contact}
+              onChange={e => setContact(e.target.value)}
+              placeholder={t("sub_ph")}
+              aria-label={t("sub_ph")}
+              autoComplete="tel"
+              required
+            />
+            <button className="btn" type="submit" disabled={busy}>{busy ? t("log_working") : t("subscribe")}</button>
           </form>
         </div>
       </div>
